@@ -1,0 +1,24 @@
+{
+  "name": "web",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "build": "browserify index.js -o bundle.js && echo Go to client at && pwd",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "babel": "^5.8.38",
+    "browserify": "^17.0.1",
+    "express": "^4.21.2",
+    "pixi-viewport": "^6.0.3",
+    "pixi.js": "^8.6.6"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.0",
+    "@babel/preset-env": "^7.26.0",
+    "babelify": "^10.0.0"
+  }
+}

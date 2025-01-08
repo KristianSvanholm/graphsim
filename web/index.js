@@ -1,0 +1,56 @@
+var PIXI = require('pixi.js')
+var PIXVI = require('pixi-viewport')
+
+const run = (async () => {
+
+    const url = "http://localhost:8080/graph"
+    const response = await fetch(url)
+    if (!response.ok) {
+        console.log("FUCK", response.status)
+    }
+
+    const json = await response.json();
+    console.log(json);
+
+    // Create the application helper and add its render target to the page
+    const app = new PIXI.Application();
+    await app.init({ antialias: true, resizeTo: window })
+    document.body.appendChild(app.canvas);
+    const viewport = new PIXVI.Viewport({
+        screenWidth: window.innerWidth,
+        screenHeight: window.innerHeight,
+        worldwidth: 1000,
+        worldheight: 1000,
+        events: app.renderer.events,
+    })
+
+    app.stage.addChild(viewport);
+
+    viewport.drag().pinch().wheel().decelerate();
+    const graphics = new PIXI.Graphics();
+
+    let nodes = json.nodes
+    for( let i = 0; i< nodes.length; i++ ){
+        let n = nodes[i]
+        console.log(n.X,n.Y)
+        graphics.circle(n.X,n.Y,5)
+        graphics.fill(0xde3249)
+    }
+
+    let links = json.links
+
+    for (let i= 0; i< links.length; i++) {
+        let src = nodes[links[i].Src]
+        let dst = nodes[links[i].Dst]
+        console.log(src, dst)
+        graphics.moveTo(src.X, src.Y)
+        graphics.lineTo(dst.X, dst.Y)
+    }
+
+    graphics.stroke({color: 0xffffff, pixelLine:true, width: 1})
+
+    viewport.addChild(graphics)
+
+})
+
+run();
