@@ -1,6 +1,7 @@
 package forces
 
 import (
+	"fmt"
 	"math"
 )
 
@@ -10,14 +11,14 @@ const DISTANCE float64 = 30
 const STRENGTH float64 = -30
 
 type Link struct {
-    src int
-    dst int
+    Src int
+    Dst int
     strength float64
     bias float64
 }
 
 type Node struct {
-    id int
+    Id int
     x float64
     y float64
     vx float64
@@ -36,6 +37,20 @@ type Sim struct {
     links []*Link
 }
 
+func Sim_init(nodes []*Node, links []*Link) Sim {
+    am := 0.001
+    return Sim{
+        alpha: 1,
+        alphaMin: am,
+        alphaDecay: 0.02276277904,
+        alphaTarget: 0,
+        velocityDecay: 0.6,
+        nodes: nodes,
+        links: links,
+    }
+}
+
+
 func (s *Sim)Step() bool {
     s.tick()
     return s.alpha < s.alphaMin
@@ -46,7 +61,7 @@ func (s *Sim) tick(){
     s.alpha += (s.alphaTarget - s.alpha) * s.alphaDecay
     s.linkforces()
     s.manyBody()
-    s.center(1920,1080)
+    s.center(1920/2,1080/2)
 
     // Apply velocities to node position
     for _, n := range s.nodes {
@@ -54,19 +69,20 @@ func (s *Sim) tick(){
         n.vy *= s.velocityDecay
         n.x += n.vx // Apply to position
         n.y += n.vy
+        fmt.Println(n.x, n.y)
     }
-
+    fmt.Println("========")
 }
 
 // Set initial node positions
-func (s *Sim) init(){
+func (s *Sim) Init(){
     s.nodeInit()
     s.linkInit()
 }
 
 func (s *Sim) nodeInit(){
     for i, n := range s.nodes {
-        n.id = i
+        n.Id = i
         radius := initialRadius * math.Sqrt(0.5 +float64(i))
         angle := float64(i) * initialAngle
         n.x = radius * math.Cos(angle)
@@ -78,20 +94,20 @@ func (s *Sim) linkInit(){
 
     count := make([]int, len(s.nodes))
     for _, l := range s.links {
-        count[l.src] += 1
-        count[l.dst] += 1
+        count[l.Src] += 1
+        count[l.Dst] += 1
     }
     
     for _, l := range s.links {
-        l.bias = float64(count[l.src] / (count[l.src] + count[l.dst]))
-        l.strength = 1 / math.Min(float64(count[l.src]), float64(count[l.dst]))
+        l.bias = float64(count[l.Src] / (count[l.Src] + count[l.Dst]))
+        l.strength = 1 / math.Min(float64(count[l.Src]), float64(count[l.Dst]))
     }
 }
 
 func (s *Sim) linkforces(){
     for _, l := range s.links {
-        src := s.nodes[l.src]
-        dst := s.nodes[l.dst]
+        src := s.nodes[l.Src]
+        dst := s.nodes[l.Dst]
 
         x := dst.x + dst.vx - src.x - src.vx
         y := dst.y + dst.vy - src.y - src.vy
