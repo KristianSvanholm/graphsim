@@ -19,11 +19,12 @@ const run = (async () => {
     const viewport = new PIXVI.Viewport({
         screenWidth: window.innerWidth,
         screenHeight: window.innerHeight,
-        worldwidth: 1000,
-        worldheight: 1000,
+        //worldwidth: 1920,
+        //worldheight: 1080,
         events: app.renderer.events,
     })
 
+    console.log(window.innerWidth, window.innerHeight)
     app.stage.addChild(viewport);
 
     viewport.drag().pinch().wheel().decelerate();
