@@ -33,8 +33,8 @@ const run = (async () => {
     let nodes = json.nodes
     for( let i = 0; i< nodes.length; i++ ){
         let n = nodes[i]
-        console.log(n.X,n.Y)
-        graphics.circle(n.X,n.Y,5)
+        console.log(n.Pos.X,n.Pos.Y)
+        graphics.circle(n.Pos.X,n.Pos.Y,5)
         graphics.fill(0xde3249)
     }
 
@@ -44,8 +44,8 @@ const run = (async () => {
         let src = nodes[links[i].Src]
         let dst = nodes[links[i].Dst]
         console.log(src, dst)
-        graphics.moveTo(src.X, src.Y)
-        graphics.lineTo(dst.X, dst.Y)
+        graphics.moveTo(src.Pos.X, src.Pos.Y)
+        graphics.lineTo(dst.Pos.X, dst.Pos.Y)
     }
 
     graphics.stroke({color: 0xffffff, pixelLine:true, width: 1})

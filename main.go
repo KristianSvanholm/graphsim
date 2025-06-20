@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/spatial/r2"
 )
 
@@ -33,7 +34,7 @@ func (n Node) ID() int64 {
 
 func main() {
 
-	http.HandleFunc("/graph", graph)
+	http.HandleFunc("/graph", graph2)
 
 	http.ListenAndServe(":8080", nil)
 }
@@ -43,7 +44,6 @@ const HEIGHT = 1080.0
 const SCALE = 500
 
 func graph(w http.ResponseWriter, r *http.Request) {
-
 	fmt.Println("request")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
@@ -158,73 +158,169 @@ func Encode(w http.ResponseWriter, data interface{}) error {
 	return nil
 }
 
+func graph2(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	numLinks := 500
+	nodes := make([]*Vertex, 1000)
+	links := make([]*Edge, 0)
+	for i := range nodes {
+		nodes[i] = &Vertex{Id: i, Pos: r2.Vec{X: WIDTH/2 + rand.Float64()*WIDTH/4, Y: HEIGHT/2 + rand.Float64()*HEIGHT/4}}
+
+	}
+	for range numLinks {
+		dst := rand.Intn(len(nodes))
+		src := rand.Intn(len(nodes))
+		if dst == src {
+			continue
+		}
+
+		// Add edges
+		links = append(links, &Edge{Src: src, Dst: dst})
+	}
+
+	g := NewGraph(nodes, links, 1920, 1080)
+	g.ForceDirectedGraph()
+
+	Encode(w, g.export())
+
+}
+
 type Vertex struct {
-	id  int
-	pos r2.Vec
+	Id  int
+	Pos r2.Vec
 }
 
 type Edge struct {
-	src, dst int
+	Src, Dst int
+}
+
+type graphExport struct {
+	Vertices []*Vertex `json:"nodes"`
+	Edges    []*Edge   `json:"links"`
 }
 
 type Graph struct {
 	converged bool
-	step      float64
-	energy    float64
-	energy0   float64
+	progress  int     // Adaptive step length counter
+	t         float64 // Step length modifier
+	step      float64 // Step length
+	energy    float64 // Total energy in graph
+	energy0   float64 // Previous energy in graph
 	vertices  []*Vertex
 	edges     []*Edge
+	x         []float64
+	x0        []float64
+	k         float64 // "Optimal distance"
+	c         float64 // Relative strength of attractive and repulsive forces
+	tol       float64
 }
 
-func NewGraph(vertices []*Vertex, edges []*Edge) Graph {
+func (g *Graph) export() graphExport {
+	return graphExport{
+		Vertices: g.vertices,
+		Edges:    g.edges,
+	}
+}
+
+func NewGraph(vertices []*Vertex, edges []*Edge, w float64, h float64) Graph {
 	return Graph{
 		converged: false,
 		step:      1.0,
+		t:         0.9,
+		k:         math.Sqrt((w * h) / float64(len(vertices))),
+		x:         flattenPositions(vertices),
+		c:         0.2,
+		tol:       1,
 		energy:    math.Inf(1),
 		vertices:  vertices,
 		edges:     edges,
 	}
 }
 
+func flattenPositions(vs []*Vertex) []float64 {
+	x := make([]float64, 0)
+	for _, v := range vs {
+		x = append(x, v.Pos.X, v.Pos.Y)
+	}
+	return x
+}
+
+func (g *Graph) checkConverged() {
+	g.converged = floats.Distance(g.x, g.x0, 2) < g.k*g.tol
+}
+
 func (g *Graph) ForceDirectedGraph() {
+
+	fmt.Println("run")
+	start := time.Now()
 	for !g.converged {
+
+		g.x0 = g.x
 		g.energy0 = g.energy
 		g.energy = 0
+
 		for i := range g.vertices {
-			fx := 0.0
-			fy := 0.0
+			var f r2.Vec
 			for _, e := range g.edges {
-				if e.dst == i || e.src == i {
-					vx := g.vertices[e.src]
-					ux := g.vertices[e.dst]
-					delta := r2.Sub(ux.pos, vx.pos)
-					fx += (f_ax(e.dst, e.src) / r2.Norm(delta)) * delta.X
-					fy += (f_ay(e.dst, e.src) / r2.Norm(delta)) * delta.Y
+				if e.Dst == i || e.Src == i {
+
+					// NOTE:: Not knowing which is which here might be a bug.
+					vx := g.vertices[e.Src]
+					ux := g.vertices[e.Dst]
+					delta := r2.Sub(ux.Pos, vx.Pos)
+					f = r2.Add(f, r2.Scale(g.fa(e.Src, e.Dst)/r2.Norm(delta), delta))
+					//f.X += (f_ax(e.Dst, e.Src) / r2.Norm(delta)) * delta.X
+					//f.Y += (f_ay(e.Dst, e.Src) / r2.Norm(delta)) * delta.Y
 				}
 			}
 			for j := i + 1; j < len(g.vertices); j++ {
 				vx := g.vertices[i]
 				ux := g.vertices[j]
-				delta := r2.Sub(ux.pos, vx.pos)
-				//f += f_r(i, j)
+				delta := r2.Sub(ux.Pos, vx.Pos)
+				f = r2.Add(f, r2.Scale(g.fr(i, j), delta))
+				//f.X += (f_rx(i, j) / r2.Norm(delta) * delta.X)
+				//f.Y += (f_ry(i, j) / r2.Norm(delta) * delta.Y)
 			}
-
-			g.energy += math.Pow(math.Abs(fx), 2)
+			v := g.vertices[i]
+			v.Pos = r2.Add(v.Pos, r2.Scale(g.step, r2.Unit(f)))
+			g.energy += r2.Norm2(f)
 		}
+		g.updateSteplen()
+		g.x = flattenPositions(g.vertices)
+		g.checkConverged()
+	}
 
+	stop := time.Now()
+	delta := stop.Sub(start)
+	fmt.Println(delta)
+	for _, v := range g.vertices {
+		fmt.Println(v.Pos)
+	}
+
+}
+
+func (g *Graph) updateSteplen() {
+	if g.energy < g.energy0 {
+		g.progress += 1
+		if g.progress >= 5 {
+			g.progress = 0
+			g.step /= g.t
+		}
+	} else {
+		g.progress = 0
+		g.step *= g.t
 	}
 }
 
-func f_ax(i int, j int) float64 {
-	return 0.0
-}
-func f_ay(i int, j int) float64 {
-	return 0.0
+func (g *Graph) fa(i int, j int) float64 {
+	v := g.vertices[i].Pos
+	u := g.vertices[j].Pos
+	return r2.Norm2(r2.Sub(v, u)) / g.k
 }
 
-func f_rx(i int, j int) float64 {
-	return 0.0
-}
-func f_ry(i int, j int) float64 {
-	return 0.0
+func (g *Graph) fr(i int, j int) float64 {
+	v := g.vertices[i].Pos
+	u := g.vertices[j].Pos
+	return -g.c * math.Pow(g.k, 2) / r2.Norm(r2.Sub(v, u))
 }
