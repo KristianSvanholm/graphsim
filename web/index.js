@@ -30,15 +30,8 @@ const run = (async () => {
     viewport.drag().pinch().wheel().decelerate();
     const graphics = new PIXI.Graphics();
 
-    let nodes = json.nodes
-    for( let i = 0; i< nodes.length; i++ ){
-        let n = nodes[i]
-        console.log(n.Pos.X,n.Pos.Y)
-        graphics.circle(n.Pos.X,n.Pos.Y,5)
-        graphics.fill(0xde3249)
-    }
-
     let links = json.links
+    let nodes = json.nodes
 
     for (let i= 0; i< links.length; i++) {
         let src = nodes[links[i].Src]
@@ -49,6 +42,13 @@ const run = (async () => {
     }
 
     graphics.stroke({color: 0xffffff, pixelLine:true, width: 1})
+
+    for( let i = 0; i< nodes.length; i++ ){
+        let n = nodes[i]
+        console.log(n.Pos.X,n.Pos.Y)
+        graphics.circle(n.Pos.X,n.Pos.Y,5)
+        graphics.fill(0xde3249)
+    }
 
     viewport.addChild(graphics)
 

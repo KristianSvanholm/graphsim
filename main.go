@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"os"
 	"time"
 
 	"gonum.org/v1/gonum/floats"
@@ -160,26 +161,23 @@ func Encode(w http.ResponseWriter, data interface{}) error {
 
 func graph2(w http.ResponseWriter, r *http.Request) {
 
+	fmt.Println("\n\n\n")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	numLinks := 500
-	nodes := make([]*Vertex, 1000)
-	links := make([]*Edge, 0)
-	for i := range nodes {
-		nodes[i] = &Vertex{Id: i, Pos: r2.Vec{X: WIDTH/2 + rand.Float64()*WIDTH/4, Y: HEIGHT/2 + rand.Float64()*HEIGHT/4}}
 
+	var struc graphExport
+	data, err := os.ReadFile("dump.json")
+	if err != nil {
+		fmt.Println("err: ", err)
+		http.Error(w, "nope", http.StatusInternalServerError)
+		return
 	}
-	for range numLinks {
-		dst := rand.Intn(len(nodes))
-		src := rand.Intn(len(nodes))
-		if dst == src {
-			continue
-		}
-
-		// Add edges
-		links = append(links, &Edge{Src: src, Dst: dst})
+	json.Unmarshal(data, &struc)
+	for _, v := range struc.Vertices {
+		v.Pos.X = WIDTH/2 + rand.Float64()*WIDTH/4
+		v.Pos.Y = HEIGHT/2 + rand.Float64()*HEIGHT/4
 	}
-
-	g := NewGraph(nodes, links, 1920, 1080)
+	fmt.Println("pos", struc.Vertices[0].Pos, struc.Vertices[0].Id)
+	g := NewGraph(struc.Vertices, struc.Edges, WIDTH, HEIGHT)
 	g.ForceDirectedGraph()
 
 	Encode(w, g.export())
@@ -226,9 +224,9 @@ func (g *Graph) export() graphExport {
 func NewGraph(vertices []*Vertex, edges []*Edge, w float64, h float64) Graph {
 	return Graph{
 		converged: false,
-		step:      1.0,
+		step:      1,
 		t:         0.9,
-		k:         math.Sqrt((w * h) / float64(len(vertices))),
+		k:         math.Sqrt((w*h)/float64(len(vertices))) / 10,
 		x:         flattenPositions(vertices),
 		c:         0.2,
 		tol:       1,
@@ -252,6 +250,7 @@ func (g *Graph) checkConverged() {
 
 func (g *Graph) ForceDirectedGraph() {
 
+	empty := r2.Vec{0.0, 0.0}
 	fmt.Println("run")
 	start := time.Now()
 	for !g.converged {
@@ -263,15 +262,13 @@ func (g *Graph) ForceDirectedGraph() {
 		for i := range g.vertices {
 			var f r2.Vec
 			for _, e := range g.edges {
-				if e.Dst == i || e.Src == i {
+				if e.Src == i {
 
 					// NOTE:: Not knowing which is which here might be a bug.
 					vx := g.vertices[e.Src]
 					ux := g.vertices[e.Dst]
 					delta := r2.Sub(ux.Pos, vx.Pos)
 					f = r2.Add(f, r2.Scale(g.fa(e.Src, e.Dst)/r2.Norm(delta), delta))
-					//f.X += (f_ax(e.Dst, e.Src) / r2.Norm(delta)) * delta.X
-					//f.Y += (f_ay(e.Dst, e.Src) / r2.Norm(delta)) * delta.Y
 				}
 			}
 			for j := i + 1; j < len(g.vertices); j++ {
@@ -279,12 +276,13 @@ func (g *Graph) ForceDirectedGraph() {
 				ux := g.vertices[j]
 				delta := r2.Sub(ux.Pos, vx.Pos)
 				f = r2.Add(f, r2.Scale(g.fr(i, j), delta))
-				//f.X += (f_rx(i, j) / r2.Norm(delta) * delta.X)
-				//f.Y += (f_ry(i, j) / r2.Norm(delta) * delta.Y)
 			}
 			v := g.vertices[i]
-			v.Pos = r2.Add(v.Pos, r2.Scale(g.step, r2.Unit(f)))
+			if f != empty {
+				v.Pos = r2.Add(v.Pos, r2.Scale(g.step, r2.Unit(f)))
+			}
 			g.energy += r2.Norm2(f)
+
 		}
 		g.updateSteplen()
 		g.x = flattenPositions(g.vertices)
@@ -294,20 +292,18 @@ func (g *Graph) ForceDirectedGraph() {
 	stop := time.Now()
 	delta := stop.Sub(start)
 	fmt.Println(delta)
-	for _, v := range g.vertices {
-		fmt.Println(v.Pos)
-	}
-
 }
 
 func (g *Graph) updateSteplen() {
 	if g.energy < g.energy0 {
+		//fmt.Println("helloless")
 		g.progress += 1
 		if g.progress >= 5 {
 			g.progress = 0
 			g.step /= g.t
 		}
 	} else {
+		//fmt.Println("more")
 		g.progress = 0
 		g.step *= g.t
 	}
