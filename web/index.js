@@ -1,21 +1,39 @@
 var PIXI = require('pixi.js')
 var PIXVI = require('pixi-viewport')
 
+let itterations = 125
+let start = performance.now()
+
+var itt = document.getElementById("itt");
+var search = document.getElementById("search");
+var duration = document.getElementById("duration")
+itt.oninput = function(){
+    itterations = this.value
+}
+search.onclick = function(){
+    const canvases = document.body.querySelectorAll('canvas');
+    canvases.forEach(canvas => canvas.remove());
+
+    start = performance.now();
+    run(itterations)
+    
+}
+
 const run = (async () => {
 
-    const url = "http://localhost:8080/graph"
+    const url = "http://localhost:8080/graph?itt="+itterations
     const response = await fetch(url)
     if (!response.ok) {
-        console.log("FUCK", response.status)
+        console.log("Ooops", response.status)
     }
 
     const json = await response.json();
-    console.log(json);
 
     // Create the application helper and add its render target to the page
     const app = new PIXI.Application();
     await app.init({ antialias: true, resizeTo: window })
     document.body.appendChild(app.canvas);
+
     const viewport = new PIXVI.Viewport({
         screenWidth: window.innerWidth,
         screenHeight: window.innerHeight,
@@ -24,7 +42,6 @@ const run = (async () => {
         events: app.renderer.events,
     })
 
-    console.log(window.innerWidth, window.innerHeight)
     app.stage.addChild(viewport);
 
     viewport.drag().pinch().wheel().decelerate();
@@ -57,7 +74,6 @@ const run = (async () => {
     for (let i= 0; i< links.length; i++) {
         let src = nodes[links[i].Src]
         let dst = nodes[links[i].Dst]
-        console.log(src, dst)
         graphics.moveTo(src.Pos.X, src.Pos.Y)
         graphics.lineTo(dst.Pos.X, dst.Pos.Y)
     }
@@ -66,13 +82,16 @@ const run = (async () => {
 
     for( let i = 0; i< nodes.length; i++ ){
         let n = nodes[i]
-        console.log(n.Pos.X,n.Pos.Y)
         graphics.circle(n.Pos.X,n.Pos.Y,5)
         graphics.fill(0xde3249)
     }
 
     viewport.addChild(graphics)
 
+    const end = performance.now();
+    const dur = end - start;
+    console.log(duration)
+    duration.textContent = dur+"ms"
 })
 
 run();
