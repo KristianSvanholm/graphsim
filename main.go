@@ -14,13 +14,13 @@ import (
 )
 
 type Link struct {
-	Src int64
-	Dst int64
+	Src int64 `json="src"`
+	Dst int64 `json="dst"`
 }
 type Node struct {
-	IDVal int64
-	Pos   r2.Vec
-	Disp  r2.Vec
+	Id   int64 `json="id"`
+	Pos  r2.Vec
+	Disp r2.Vec
 }
 
 type Node2 struct {
@@ -30,12 +30,12 @@ type Node2 struct {
 }
 
 func (n Node) ID() int64 {
-	return n.IDVal
+	return n.Id
 }
 
 func main() {
 
-	http.HandleFunc("/graph", graph2)
+	http.HandleFunc("/graph", graph)
 
 	http.ListenAndServe(":8080", nil)
 }
@@ -48,31 +48,28 @@ func graph(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("request")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	numLinks := 500
-	nodes := make([]*Node, 1000)
-	links := make([]*Link, 0)
-	for i := range nodes {
-		nodes[i] = &Node{IDVal: int64(i), Pos: r2.Vec{X: WIDTH/2 + rand.Float64()*WIDTH/4, Y: HEIGHT/2 + rand.Float64()*HEIGHT/4}}
-
+	var struc Export
+	data, err := os.ReadFile("dump.json")
+	if err != nil {
+		fmt.Println("err: ", err)
+		http.Error(w, "nope", http.StatusInternalServerError)
+		return
 	}
-	for range numLinks {
-		dst := rand.Intn(len(nodes))
-		src := rand.Intn(len(nodes))
-		if dst == src {
-			continue
-		}
-
-		// Add edges
-		links = append(links, &Link{Src: int64(src), Dst: int64(dst)})
+	json.Unmarshal(data, &struc)
+	for _, v := range struc.Nodes {
+		v.Pos.X = WIDTH/2 + rand.Float64()*WIDTH/4
+		v.Pos.Y = HEIGHT/2 + rand.Float64()*HEIGHT/4
 	}
 
+	nodes := struc.Nodes
+	links := struc.Links
 	area := WIDTH * HEIGHT
 	k := math.Sqrt(area / float64(len(nodes)))
 
 	start := time.Now()
 
-	fmt.Println("Start sim")
-	iterations := 100
+	fmt.Println("Start sim ", len(nodes))
+	iterations := 75
 	skipcount := 0
 	for iter := 0; iter < iterations; iter++ {
 		// Reset displacements
@@ -126,12 +123,11 @@ func graph(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("duration", delta)
 
 	fmt.Println("transform")
-	nodes2 := make([]*Node2, len(nodes))
+	nodes2 := make([]*Node, len(nodes))
 	for i, v := range nodes {
-		vn := Node2{
-			Id: v.IDVal,
-			X:  v.Pos.X,
-			Y:  v.Pos.Y,
+		vn := Node{
+			Id:  v.Id,
+			Pos: v.Pos,
 		}
 		nodes2[i] = &vn
 	}
@@ -143,8 +139,8 @@ func graph(w http.ResponseWriter, r *http.Request) {
 }
 
 type Export struct {
-	Nodes []*Node2 `json:"nodes"`
-	Links []*Link  `json:"links"`
+	Nodes []*Node `json:"nodes"`
+	Links []*Link `json:"links"`
 }
 
 // Encode any struct given to it

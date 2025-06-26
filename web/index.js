@@ -19,8 +19,8 @@ const run = (async () => {
     const viewport = new PIXVI.Viewport({
         screenWidth: window.innerWidth,
         screenHeight: window.innerHeight,
-        //worldwidth: 1920,
-        //worldheight: 1080,
+        worldwidth: 1920*10,
+        worldheight: 1080*10,
         events: app.renderer.events,
     })
 
