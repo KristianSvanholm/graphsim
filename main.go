@@ -94,6 +94,7 @@ func generateQuadtree(nodes []*Node) Quadtree {
 	pos, size := findBounds(nodes)
 	root := Quad{Pos: pos, Size: size, nodes: nodes}
 	qt := Quadtree{root: root}
+	run(&qt.root)
 	return qt
 }
 
@@ -140,6 +141,27 @@ func visit(q *Quad, depth int) []*Quad {
 	return list
 }
 
+func superNodes(q *Quad, node r2.Vec, k_area float64) r2.Vec {
+	var disp r2.Vec
+
+	if len(q.nodes) == 0 {
+		return disp
+	}
+
+	center := r2.Vec{X: q.Pos.X + q.Size/2, Y: q.Pos.Y + q.Size/2}
+	delta := r2.Sub(node, center)
+	distance := math.Max(r2.Norm(delta), 0.1)
+	if len(q.nodes) <= 1 || q.Size/distance <= 1.2 { // TODO:: Magic number. Put in const
+		repulsion := k_area / distance * 1000 * float64(len(q.nodes)) // Todo:: Magic number ´1000´. Put in const for repulsion force
+		disp = r2.Add(disp, r2.Scale(repulsion/distance, delta))
+	} else {
+		for _, qs := range q.quads {
+			disp = r2.Add(disp, superNodes(qs, node, k_area))
+		}
+	}
+	return disp
+}
+
 func graph(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("request")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -155,19 +177,20 @@ func graph(w http.ResponseWriter, r *http.Request) {
 	rng := rand.New(rand.NewSource(1))
 	json.Unmarshal(data, &struc)
 	for _, v := range struc.Nodes {
-		v.Pos.X = HEIGHT/2 + rng.Float64()*HEIGHT/4
-		v.Pos.Y = HEIGHT/2 + rng.Float64()*HEIGHT/4
+		v.Pos.X = HEIGHT/3 + rng.Float64()
+		v.Pos.Y = HEIGHT/3 + rng.Float64()
 	}
 
 	nodes := struc.Nodes
 	links := struc.Links
 	area := HEIGHT * HEIGHT
 	k := math.Sqrt(area / float64(len(nodes)))
+	k_area := k * k
 
 	start := time.Now()
 
 	fmt.Println("Start sim ", len(nodes))
-	iterations := 75
+	iterations := 100
 
 	for iter := 0; iter < iterations; iter++ {
 
@@ -178,15 +201,15 @@ func graph(w http.ResponseWriter, r *http.Request) {
 
 		inner_start := time.Now()
 
-		//quads := fetchQuads(nodes)
+		qt := generateQuadtree(nodes)
 
 		quads_stop := time.Now()
 
 		// Repulsive forces
-		//for i := range nodes {
-
-		//}
-		for i := range nodes {
+		for _, v := range nodes {
+			v.Disp = r2.Add(v.Disp, superNodes(&qt.root, v.Pos, k_area))
+		}
+		/*for i := range nodes {
 			for j := i + 1; j < len(nodes); j++ {
 				v := nodes[i]
 				u := nodes[j]
@@ -198,7 +221,7 @@ func graph(w http.ResponseWriter, r *http.Request) {
 				repulsiveForce := k * k / dist * 1000
 				v.Disp = r2.Add(v.Disp, r2.Scale(repulsiveForce/dist, delta))
 			}
-		}
+		}*/
 
 		node_stop := time.Now()
 
