@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"gonum.org/v1/gonum/floats"
@@ -41,14 +40,80 @@ func main() {
 	http.ListenAndServe(":8080", nil)
 }
 
-const WIDTH = 1920.0
 const HEIGHT = 1080.0
 const SCALE = 500
 
-type update struct {
-	val  r2.Vec
-	id   int64
-	skip bool
+type Quadtree struct {
+	root Quad
+}
+
+type Quad struct {
+	Pos    r2.Vec
+	Size   float64
+	quads  [4]*Quad
+	nodes  []*Node
+	weight float64
+}
+
+func (q *Quad) addQuads() {
+	size := q.Size * 0.5
+	northwest := Quad{Pos: q.Pos, Size: size}
+	northeast := Quad{Pos: r2.Vec{q.Pos.X + size, q.Pos.Y}, Size: size}
+	southwest := Quad{Pos: r2.Vec{q.Pos.X, q.Pos.Y + size}, Size: size}
+	southeast := Quad{Pos: r2.Vec{q.Pos.X + size, q.Pos.Y + size}, Size: size}
+	q.quads[0] = &northwest
+	q.quads[1] = &northeast
+	q.quads[2] = &southwest
+	q.quads[3] = &southeast
+}
+
+func generateQuadtree(nodes []*Node) Quadtree {
+	root := Quad{Pos: r2.Vec{0, 0}, Size: HEIGHT, nodes: nodes}
+	qt := Quadtree{root: root}
+	return qt
+}
+
+func (q *Quad) insertNodes(nodes []*Node) {
+	for _, v := range nodes {
+		if q.testBounds(v) {
+			q.nodes = append(q.nodes, v)
+		}
+	}
+}
+
+func (q *Quad) testBounds(v *Node) bool {
+	innerX := v.Pos.X >= q.Pos.X && v.Pos.X < q.Pos.X+q.Size
+	innerY := v.Pos.Y >= q.Pos.Y && v.Pos.Y < q.Pos.Y+q.Size
+	return innerX && innerY
+}
+
+func run(q *Quad) {
+	if len(q.nodes) <= 1 {
+		return
+	}
+	q.addQuads()
+	for _, qs := range q.quads {
+		qs.insertNodes(q.nodes)
+		run(qs)
+	}
+}
+
+func fetchQuads(nodes []*Node) []*Quad {
+	qt := generateQuadtree(nodes)
+	run(&qt.root)
+	return visit(&qt.root, 0)
+}
+
+func visit(q *Quad, depth int) []*Quad {
+	fmt.Println(depth, len(q.quads))
+	if len(q.nodes) <= 1 {
+		return []*Quad{q}
+	}
+	list := make([]*Quad, 0)
+	for _, qs := range q.quads {
+		list = append(list, visit(qs, depth+1)...)
+	}
+	return list
 }
 
 func graph(w http.ResponseWriter, r *http.Request) {
@@ -64,13 +129,13 @@ func graph(w http.ResponseWriter, r *http.Request) {
 	}
 	json.Unmarshal(data, &struc)
 	for _, v := range struc.Nodes {
-		v.Pos.X = WIDTH/2 + rand.Float64()*WIDTH/4
+		v.Pos.X = HEIGHT/2 + rand.Float64()*HEIGHT/4
 		v.Pos.Y = HEIGHT/2 + rand.Float64()*HEIGHT/4
 	}
 
 	nodes := struc.Nodes
 	links := struc.Links
-	area := WIDTH * HEIGHT
+	area := HEIGHT * HEIGHT
 	k := math.Sqrt(area / float64(len(nodes)))
 
 	start := time.Now()
@@ -78,7 +143,6 @@ func graph(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Start sim ", len(nodes))
 	iterations := 75
 
-	n := len(nodes)
 	for iter := 0; iter < iterations; iter++ {
 
 		// Reset displacements
@@ -88,38 +152,19 @@ func graph(w http.ResponseWriter, r *http.Request) {
 
 		inner_start := time.Now()
 
-		ch := make(chan update, n*(n-1)/2)
-		var wg sync.WaitGroup
-
 		// Repulsive forces
 		for i := range nodes {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for j := i + 1; j < len(nodes); j++ {
-					v := nodes[i]
-					u := nodes[j]
-					delta := r2.Sub(v.Pos, u.Pos)
-					dist := math.Max(r2.Norm(delta), 0.01)
-					if dist >= 250 {
-						ch <- update{skip: true}
-						continue
-					}
-					repulsiveForce := k * k / dist * 1000
-					ch <- update{id: v.Id, val: r2.Scale(repulsiveForce/dist, delta), skip: false}
+			for j := i + 1; j < len(nodes); j++ {
+				v := nodes[i]
+				u := nodes[j]
+				delta := r2.Sub(v.Pos, u.Pos)
+				dist := math.Max(r2.Norm(delta), 0.01)
+				if dist >= 250 {
+					continue
 				}
-			}()
-		}
-		go func() {
-			wg.Wait()
-			close(ch)
-		}()
-
-		for res := range ch {
-			if res.skip {
-				continue
+				repulsiveForce := k * k / dist * 1000
+				v.Disp = r2.Add(v.Disp, r2.Scale(repulsiveForce/dist, delta))
 			}
-			nodes[res.id].Disp = r2.Add(nodes[res.id].Disp, res.val)
 		}
 
 		node_stop := time.Now()
@@ -143,19 +188,19 @@ func graph(w http.ResponseWriter, r *http.Request) {
 		for _, v := range nodes {
 			dispNorm := math.Max(r2.Norm(v.Disp), 0.01)
 			v.Pos = r2.Add(v.Pos, r2.Scale(math.Min(dispNorm, temp)/dispNorm, v.Disp))
-			v.Pos.X = math.Min(WIDTH, math.Max(0, v.Pos.X))
-			v.Pos.Y = math.Min(HEIGHT, math.Max(0, v.Pos.Y))
 		}
 
 		update_stop := time.Now()
 		fmt.Println(fmt.Sprintf("Repulse: %d | Attract: %d | Update: %d", node_stop.Sub(inner_start).Microseconds(), link_stop.Sub(node_stop).Microseconds(), update_stop.Sub(link_stop).Microseconds()))
 	}
 
+	quads := fetchQuads(nodes)
+
 	stop := time.Now()
 	delta := stop.Sub(start)
 	fmt.Println("duration", delta)
 
-	exp := Export{Nodes: nodes, Links: links}
+	exp := Export{Nodes: nodes, Links: links, Quads: quads}
 
 	Encode(w, exp)
 }
@@ -163,6 +208,7 @@ func graph(w http.ResponseWriter, r *http.Request) {
 type Export struct {
 	Nodes []*Node `json:"nodes"`
 	Links []*Link `json:"links"`
+	Quads []*Quad `json:"quads"`
 }
 
 // Encode any struct given to it
@@ -191,11 +237,11 @@ func graph2(w http.ResponseWriter, r *http.Request) {
 	}
 	json.Unmarshal(data, &struc)
 	for _, v := range struc.Vertices {
-		v.Pos.X = WIDTH/2 + rand.Float64()*WIDTH/4
+		v.Pos.X = HEIGHT/2 + rand.Float64()*HEIGHT/4
 		v.Pos.Y = HEIGHT/2 + rand.Float64()*HEIGHT/4
 	}
 	fmt.Println("pos", struc.Vertices[0].Pos, struc.Vertices[0].Id)
-	g := NewGraph(struc.Vertices, struc.Edges, WIDTH, HEIGHT)
+	g := NewGraph(struc.Vertices, struc.Edges, HEIGHT, HEIGHT)
 	g.ForceDirectedGraph()
 
 	Encode(w, g.export())

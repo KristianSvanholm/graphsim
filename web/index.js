@@ -32,6 +32,27 @@ const run = (async () => {
 
     let links = json.links
     let nodes = json.nodes
+    let quads = json.quads
+
+    for( let i = 0; i< quads.length; i++ ){
+        let q = quads[i]
+        // Left
+        graphics.moveTo(q.Pos.X, q.Pos.Y)
+        graphics.lineTo(q.Pos.X, q.Pos.Y + q.Size)
+       
+        // Right
+        graphics.moveTo(q.Pos.X + q.Size, q.Pos.Y)
+        graphics.lineTo(q.Pos.X + q.Size, q.Pos.Y + q.Size)
+
+        // Top
+        graphics.moveTo(q.Pos.X, q.Pos.Y)
+        graphics.lineTo(q.Pos.X + q.Size, q.Pos.Y)
+
+        // Bottom
+        graphics.moveTo(q.Pos.X, q.Pos.Y + q.Size)
+        graphics.lineTo(q.Pos.X + q.Size, q.Pos.Y + q.Size)
+
+    }
 
     for (let i= 0; i< links.length; i++) {
         let src = nodes[links[i].Src]
