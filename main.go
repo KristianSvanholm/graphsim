@@ -12,6 +12,8 @@ import (
 )
 
 func main() {
+	fs := http.FileServer(http.Dir("./web"))
+	http.Handle("/", fs)
 	http.HandleFunc("/graph", graph)
 	http.ListenAndServe(":8080", nil)
 }
