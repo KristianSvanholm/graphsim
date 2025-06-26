@@ -67,8 +67,32 @@ func (q *Quad) addQuads() {
 	q.quads[3] = &southeast
 }
 
+func findBounds(nodes []*Node) (r2.Vec, float64) {
+	minX := math.MaxFloat64
+	minY := math.MaxFloat64
+	maxX := -math.MaxFloat64
+	maxY := -math.MaxFloat64
+
+	for _, v := range nodes {
+		minX = math.Min(minX, v.Pos.X)
+		minY = math.Min(minY, v.Pos.Y)
+		maxX = math.Max(maxX, v.Pos.X)
+		maxY = math.Max(maxY, v.Pos.Y)
+	}
+
+	var size float64
+	if maxX > maxY {
+		size = maxX - minX
+	} else {
+		size = maxY - minY
+	}
+
+	return r2.Vec{minX, minY}, size
+}
+
 func generateQuadtree(nodes []*Node) Quadtree {
-	root := Quad{Pos: r2.Vec{0, 0}, Size: HEIGHT, nodes: nodes}
+	pos, size := findBounds(nodes)
+	root := Quad{Pos: pos, Size: size, nodes: nodes}
 	qt := Quadtree{root: root}
 	return qt
 }
@@ -105,7 +129,7 @@ func fetchQuads(nodes []*Node) []*Quad {
 }
 
 func visit(q *Quad, depth int) []*Quad {
-	fmt.Println(depth, len(q.quads))
+	//fmt.Println(depth, len(q.quads))
 	if len(q.nodes) <= 1 {
 		return []*Quad{q}
 	}
@@ -127,10 +151,12 @@ func graph(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", http.StatusInternalServerError)
 		return
 	}
+
+	rng := rand.New(rand.NewSource(1))
 	json.Unmarshal(data, &struc)
 	for _, v := range struc.Nodes {
-		v.Pos.X = HEIGHT/2 + rand.Float64()*HEIGHT/4
-		v.Pos.Y = HEIGHT/2 + rand.Float64()*HEIGHT/4
+		v.Pos.X = HEIGHT/2 + rng.Float64()*HEIGHT/4
+		v.Pos.Y = HEIGHT/2 + rng.Float64()*HEIGHT/4
 	}
 
 	nodes := struc.Nodes
@@ -152,7 +178,14 @@ func graph(w http.ResponseWriter, r *http.Request) {
 
 		inner_start := time.Now()
 
+		//quads := fetchQuads(nodes)
+
+		quads_stop := time.Now()
+
 		// Repulsive forces
+		//for i := range nodes {
+
+		//}
 		for i := range nodes {
 			for j := i + 1; j < len(nodes); j++ {
 				v := nodes[i]
@@ -191,7 +224,7 @@ func graph(w http.ResponseWriter, r *http.Request) {
 		}
 
 		update_stop := time.Now()
-		fmt.Println(fmt.Sprintf("Repulse: %d | Attract: %d | Update: %d", node_stop.Sub(inner_start).Microseconds(), link_stop.Sub(node_stop).Microseconds(), update_stop.Sub(link_stop).Microseconds()))
+		fmt.Println(fmt.Sprintf("Quads: %d | Repulse: %d | Attract: %d | Update: %d", quads_stop.Sub(inner_start).Microseconds(), node_stop.Sub(quads_stop).Microseconds(), link_stop.Sub(node_stop).Microseconds(), update_stop.Sub(link_stop).Microseconds()))
 	}
 
 	quads := fetchQuads(nodes)
