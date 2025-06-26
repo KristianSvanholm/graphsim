@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"gonum.org/v1/gonum/floats"
@@ -44,6 +45,12 @@ const WIDTH = 1920.0
 const HEIGHT = 1080.0
 const SCALE = 500
 
+type update struct {
+	val  r2.Vec
+	id   int64
+	skip bool
+}
+
 func graph(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("request")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -70,31 +77,52 @@ func graph(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("Start sim ", len(nodes))
 	iterations := 75
-	skipcount := 0
+
+	n := len(nodes)
 	for iter := 0; iter < iterations; iter++ {
+
 		// Reset displacements
 		for _, v := range nodes {
 			v.Disp = r2.Vec{}
 		}
 
+		inner_start := time.Now()
+
+		ch := make(chan update, n*(n-1)/2)
+		var wg sync.WaitGroup
+
 		// Repulsive forces
 		for i := range nodes {
-			for j := i + 1; j < len(nodes); j++ {
-				v := nodes[i]
-				u := nodes[j]
-				if v.ID() == u.ID() {
-					continue
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := i + 1; j < len(nodes); j++ {
+					v := nodes[i]
+					u := nodes[j]
+					delta := r2.Sub(v.Pos, u.Pos)
+					dist := math.Max(r2.Norm(delta), 0.01)
+					if dist >= 250 {
+						ch <- update{skip: true}
+						continue
+					}
+					repulsiveForce := k * k / dist * 1000
+					ch <- update{id: v.Id, val: r2.Scale(repulsiveForce/dist, delta), skip: false}
 				}
-				delta := r2.Sub(v.Pos, u.Pos)
-				dist := math.Max(r2.Norm(delta), 0.01)
-				if dist >= 250 {
-					skipcount++
-					continue
-				}
-				repulsiveForce := k * k / dist * 1000
-				v.Disp = r2.Add(v.Disp, r2.Scale(repulsiveForce/dist, delta))
-			}
+			}()
 		}
+		go func() {
+			wg.Wait()
+			close(ch)
+		}()
+
+		for res := range ch {
+			if res.skip {
+				continue
+			}
+			nodes[res.id].Disp = r2.Add(nodes[res.id].Disp, res.val)
+		}
+
+		node_stop := time.Now()
 
 		// Attractive forces
 		for _, e := range links {
@@ -102,11 +130,13 @@ func graph(w http.ResponseWriter, r *http.Request) {
 			dst := nodes[e.Dst]
 			delta := r2.Sub(src.Pos, dst.Pos)
 			dist := math.Max(r2.Norm(delta), 0.01)
-			attractiveForce := (dist * dist) / k * 100000
+			attractiveForce := (dist * dist) / k * 12500
 			forceVec := r2.Scale(attractiveForce/dist, delta)
 			src.Disp = r2.Sub(src.Disp, forceVec)
 			dst.Disp = r2.Add(dst.Disp, forceVec)
 		}
+
+		link_stop := time.Now()
 
 		// Update positions
 		temp := float64(iterations-iter) / float64(iterations) * 10
@@ -116,26 +146,18 @@ func graph(w http.ResponseWriter, r *http.Request) {
 			v.Pos.X = math.Min(WIDTH, math.Max(0, v.Pos.X))
 			v.Pos.Y = math.Min(HEIGHT, math.Max(0, v.Pos.Y))
 		}
+
+		update_stop := time.Now()
+		fmt.Println(fmt.Sprintf("Repulse: %d | Attract: %d | Update: %d", node_stop.Sub(inner_start).Microseconds(), link_stop.Sub(node_stop).Microseconds(), update_stop.Sub(link_stop).Microseconds()))
 	}
 
 	stop := time.Now()
 	delta := stop.Sub(start)
 	fmt.Println("duration", delta)
 
-	fmt.Println("transform")
-	nodes2 := make([]*Node, len(nodes))
-	for i, v := range nodes {
-		vn := Node{
-			Id:  v.Id,
-			Pos: v.Pos,
-		}
-		nodes2[i] = &vn
-	}
-	exp := Export{Nodes: nodes2, Links: links}
+	exp := Export{Nodes: nodes, Links: links}
 
-	fmt.Println("done!")
 	Encode(w, exp)
-	fmt.Println(skipcount)
 }
 
 type Export struct {
